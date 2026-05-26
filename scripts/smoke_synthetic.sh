@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 python3 tools/make_synthetic_psm.py --output dataset/synthetic_psm --length 192 --dims 4
-python3 -u main_infoflow.py \
+python3 -u main_infoflow_standalone.py \
   --mode train_test \
   --dataset PSM \
   --data_path ./dataset/synthetic_psm \

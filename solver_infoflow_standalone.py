@@ -4,21 +4,94 @@ import time
 
 import numpy as np
 import torch
-import torch.nn as nn
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 from data_factory.data_loader import get_loader_segment
-from model.AnomalyInfoFlow import AnomalyInfoFlow
-from solver import my_kl_loss
-from solver_infoflow import EarlyStopping, adjustment, combine_scores, paper_threshold, percentile_threshold
+from model.infoflow_modules import StandaloneInfoFlow, infoflow_loss
 
 
-def normalize(values, eps=1e-8):
+class EarlyStopping:
+    def __init__(self, patience=3, dataset_name="", delta=0.0):
+        self.patience = patience
+        self.dataset = dataset_name
+        self.delta = delta
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+
+    def __call__(self, val_loss, model, path):
+        score = -val_loss
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model, path)
+            return
+        if score < self.best_score + self.delta:
+            self.counter += 1
+            print(f"EarlyStopping counter: {self.counter} out of {self.patience}")
+            if self.counter >= self.patience:
+                self.early_stop = True
+            return
+        self.best_score = score
+        self.save_checkpoint(val_loss, model, path)
+        self.counter = 0
+
+    def save_checkpoint(self, val_loss, model, path):
+        os.makedirs(path, exist_ok=True)
+        ckpt = os.path.join(path, f"{self.dataset}_infoflow_checkpoint.pth")
+        torch.save(model.state_dict(), ckpt)
+        print(f"Validation loss decreased. Saving model to {ckpt}; val_loss={val_loss:.7f}")
+
+
+def adjust_learning_rate(optimizer, epoch, lr, lr_decay="none"):
+    if lr_decay == "none":
+        return
+    next_lr = lr * (0.5 ** max(epoch - 1, 0))
+    for param_group in optimizer.param_groups:
+        param_group["lr"] = next_lr
+    print(f"Updating learning rate to {next_lr}")
+
+
+def normalize_np(values, eps=1e-8):
     values = values.reshape(-1)
     return (values - values.min()) / (values.max() - values.min() + eps)
 
 
-class AnomalyInfoFlowSolver(object):
+def combine_scores(reconstruction_error, nll, alpha):
+    rec = normalize_np(reconstruction_error)
+    density = normalize_np(nll)
+    return alpha * density + (1.0 - alpha) * rec
+
+
+def paper_threshold(scores):
+    scores = scores.reshape(-1)
+    return float(scores.mean() + scores.std())
+
+
+def percentile_threshold(scores, anomaly_ratio):
+    return float(np.percentile(scores.reshape(-1), 100.0 - anomaly_ratio))
+
+
+def adjustment(gt, pred):
+    anomaly_state = False
+    for i in range(len(gt)):
+        if gt[i] == 1 and pred[i] == 1 and not anomaly_state:
+            anomaly_state = True
+            for j in range(i, 0, -1):
+                if gt[j] == 0:
+                    break
+                pred[j] = 1
+            for j in range(i, len(gt)):
+                if gt[j] == 0:
+                    break
+                pred[j] = 1
+        elif gt[i] == 0:
+            anomaly_state = False
+        if anomaly_state:
+            pred[i] = 1
+    return gt, pred
+
+
+class StandaloneInfoFlowSolver(object):
     def __init__(self, config):
         self.__dict__.update(config)
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -38,6 +111,14 @@ class AnomalyInfoFlowSolver(object):
             mode="val",
             dataset=self.dataset,
         )
+        self.test_loader = get_loader_segment(
+            self.data_path,
+            batch_size=self.batch_size,
+            win_size=self.win_size,
+            step=self.step,
+            mode="test",
+            dataset=self.dataset,
+        )
         self.thre_loader = get_loader_segment(
             self.data_path,
             batch_size=self.batch_size,
@@ -49,7 +130,7 @@ class AnomalyInfoFlowSolver(object):
         self.build_model()
 
     def build_model(self):
-        self.model = AnomalyInfoFlow(
+        self.model = StandaloneInfoFlow(
             win_size=self.win_size,
             enc_in=self.input_c,
             c_out=self.output_c,
@@ -66,38 +147,6 @@ class AnomalyInfoFlowSolver(object):
             lr=self.lr,
             weight_decay=self.weight_decay,
         )
-        self.criterion = nn.MSELoss()
-
-    def association_losses(self, series, prior):
-        series_loss = 0.0
-        prior_loss = 0.0
-        for u in range(len(prior)):
-            normalized_prior = prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                1, 1, 1, self.win_size
-            )
-            series_loss += torch.mean(my_kl_loss(series[u], normalized_prior.detach()))
-            series_loss += torch.mean(my_kl_loss(normalized_prior.detach(), series[u]))
-            prior_loss += torch.mean(my_kl_loss(normalized_prior, series[u].detach()))
-            prior_loss += torch.mean(my_kl_loss(series[u].detach(), normalized_prior))
-        return series_loss / len(prior), prior_loss / len(prior)
-
-    def association_energy(self, outputs):
-        series = outputs["series"]
-        prior = outputs["prior"]
-        series_loss = 0.0
-        prior_loss = 0.0
-        for u in range(len(prior)):
-            normalized_prior = prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                1, 1, 1, self.win_size
-            )
-            if u == 0:
-                series_loss = my_kl_loss(series[u], normalized_prior.detach()) * self.temperature
-                prior_loss = my_kl_loss(normalized_prior, series[u].detach()) * self.temperature
-            else:
-                series_loss += my_kl_loss(series[u], normalized_prior.detach()) * self.temperature
-                prior_loss += my_kl_loss(normalized_prior, series[u].detach()) * self.temperature
-        metric = torch.softmax((-series_loss - prior_loss), dim=-1)
-        return metric * outputs["reconstruction_error"]
 
     def run_epoch(self, loader, train=False):
         self.model.train(train)
@@ -107,25 +156,16 @@ class AnomalyInfoFlowSolver(object):
             if train:
                 self.optimizer.zero_grad()
             outputs = self.model(x)
-            info_regularizer = (
-                self.beta * outputs["ib_reconstruction_loss"]
-                + outputs["kl_loss"]
-                + self.gamma * outputs["flow_nll"]
-            )
-            series_loss, prior_loss = self.association_losses(outputs["series"], outputs["prior"])
-            rec_loss = self.criterion(outputs["reconstruction"], x)
-            loss1 = rec_loss - self.k * series_loss + self.info_train_weight * info_regularizer
-            loss2 = rec_loss + self.k * prior_loss + self.info_train_weight * info_regularizer
+            loss, parts = infoflow_loss(outputs, beta=self.beta, gamma=self.gamma)
             if train:
-                loss1.backward(retain_graph=True)
-                loss2.backward()
+                loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
                 self.optimizer.step()
-            losses.append(float((loss1 + loss2).detach().cpu() / 2.0))
+            losses.append(float(loss.detach().cpu()))
         return float(np.average(losses)) if losses else 0.0
 
     def train(self):
-        print("======================ANOMALY-INFOFLOW TRAIN MODE======================")
+        print("======================INFOFLOW TRAIN MODE======================")
         os.makedirs(self.model_save_path, exist_ok=True)
         early_stopping = EarlyStopping(patience=self.patience, dataset_name=self.dataset)
         train_steps = len(self.train_loader)
@@ -147,50 +187,47 @@ class AnomalyInfoFlowSolver(object):
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
+            adjust_learning_rate(self.optimizer, epoch + 1, self.lr, self.lr_decay)
 
-    def collect_scores(self, loader):
+    def collect_raw_scores(self, loader):
         self.model.eval()
-        association_scores = []
-        info_scores = []
+        rec_errors = []
+        nlls = []
         labels = []
         with torch.no_grad():
             for input_data, batch_labels in loader:
                 x = input_data.float().to(self.device)
                 outputs = self.model(x)
-                association_scores.append(self.association_energy(outputs).detach().cpu().numpy().reshape(-1))
-                info_scores.append(
-                    combine_scores(
-                        outputs["reconstruction_error"].detach().cpu().numpy(),
-                        outputs["nll"].detach().cpu().numpy(),
-                        self.alpha,
-                    )
-                )
+                rec_errors.append(outputs["reconstruction_error"].detach().cpu().numpy().reshape(-1))
+                nlls.append(outputs["nll"].detach().cpu().numpy().reshape(-1))
                 labels.append(batch_labels.detach().cpu().numpy().reshape(-1))
-        association_scores = np.concatenate(association_scores, axis=0)
-        info_scores = np.concatenate(info_scores, axis=0)
+        rec_errors = np.concatenate(rec_errors, axis=0)
+        nlls = np.concatenate(nlls, axis=0)
         labels = np.concatenate(labels, axis=0)
-        if self.association_weight >= 1.0:
-            return association_scores, labels
-        if self.association_weight <= 0.0:
-            return info_scores, labels
-        scores = self.association_weight * normalize(association_scores) + (1.0 - self.association_weight) * normalize(
-            info_scores
-        )
-        return scores, labels
+        return rec_errors, nlls, labels
 
     def test(self):
         checkpoint = os.path.join(self.model_save_path, f"{self.dataset}_infoflow_checkpoint.pth")
         self.model.load_state_dict(torch.load(checkpoint, map_location=self.device, weights_only=True))
-        print("======================ANOMALY-INFOFLOW TEST MODE======================")
-        train_scores, _ = self.collect_scores(self.train_loader)
-        test_scores, test_labels = self.collect_scores(self.thre_loader)
+        print("======================INFOFLOW TEST MODE======================")
+
+        train_rec, train_nll, _ = self.collect_raw_scores(self.train_loader)
+        test_rec, test_nll, test_labels = self.collect_raw_scores(self.thre_loader)
+
         if self.threshold_mode == "percentile":
-            threshold = percentile_threshold(np.concatenate([train_scores, test_scores], axis=0), self.anormly_ratio)
+            train_scores = combine_scores(train_rec, train_nll, self.alpha)
+            test_scores = combine_scores(test_rec, test_nll, self.alpha)
+            threshold_scores = np.concatenate([train_scores, test_scores], axis=0)
+            threshold = percentile_threshold(threshold_scores, self.anormly_ratio)
         else:
+            train_scores = combine_scores(train_rec, train_nll, self.alpha)
+            test_scores = combine_scores(test_rec, test_nll, self.alpha)
             threshold = paper_threshold(train_scores)
+
         pred = (test_scores > threshold).astype(int)
         gt = test_labels.astype(int)
         gt, pred = adjustment(gt, pred)
+
         accuracy = accuracy_score(gt, pred)
         precision, recall, f_score, _ = precision_recall_fscore_support(
             gt,
@@ -213,7 +250,7 @@ class AnomalyInfoFlowSolver(object):
             )
         )
         os.makedirs(self.result_path, exist_ok=True)
-        result_file = os.path.join(self.result_path, f"{self.dataset}_anomaly_infoflow_metrics.json")
+        result_file = os.path.join(self.result_path, f"{self.dataset}_infoflow_metrics.json")
         with open(result_file, "w") as f:
             json.dump(metrics, f, indent=2)
         print(f"Saved metrics to {result_file}")

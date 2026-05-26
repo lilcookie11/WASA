@@ -3,7 +3,7 @@ import os
 
 from torch.backends import cudnn
 
-from solver_infoflow import InfoFlowSolver
+from solver_infoflow_standalone import StandaloneInfoFlowSolver
 from utils.utils import mkdir
 
 
@@ -11,7 +11,7 @@ def main(config):
     cudnn.benchmark = True
     if not os.path.exists(config.model_save_path):
         mkdir(config.model_save_path)
-    solver = InfoFlowSolver(vars(config))
+    solver = StandaloneInfoFlowSolver(vars(config))
     if config.mode == "train":
         solver.train()
     elif config.mode == "test":
@@ -28,8 +28,8 @@ if __name__ == "__main__":
     parser.add_argument("--mode", type=str, default="train_test", choices=["train", "test", "train_test"])
     parser.add_argument("--dataset", type=str, default="PSM", choices=["PSM", "MSL", "SMAP", "SMD"])
     parser.add_argument("--data_path", type=str, default="./dataset/PSM")
-    parser.add_argument("--model_save_path", type=str, default="checkpoints")
-    parser.add_argument("--result_path", type=str, default="results/infoflow")
+    parser.add_argument("--model_save_path", type=str, default="checkpoints_infoflow_standalone")
+    parser.add_argument("--result_path", type=str, default="results/infoflow_standalone")
 
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=2e-2)
@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
     config = parser.parse_args()
     args = vars(config)
-    print("------------ InfoFlow Options -------------")
+    print("------------ Standalone InfoFlow Options -------------")
     for k, v in sorted(args.items()):
         print("%s: %s" % (str(k), str(v)))
     print("-------------- End ----------------")

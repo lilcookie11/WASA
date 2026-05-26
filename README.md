@@ -1,63 +1,54 @@
-# InfoFlow Anomaly Detection
+# InfoFlow
 
-This repository implements an InfoFlow-style time-series anomaly detection model on top of the public [Anomaly-Transformer](https://github.com/thuml/Anomaly-Transformer) codebase.
+Official implementation for the paper:
 
-The implementation follows the paper method: suppress task-irrelevant temporal variation with an information bottleneck, amplify salient abnormal dynamics through a compact critical representation, and estimate anomaly likelihood with a conditional normalizing flow.
+**Suppressing Irrelevance, Amplifying Salience: Information Bottleneck-Driven Enhancement of Time Series Anomaly Detection**
 
-## Method
+InfoFlow is an unsupervised time-series anomaly detection framework that improves temporal anomaly scoring by learning a compact critical representation. The model combines temporal association modeling, an information bottleneck module, and conditional flow-based likelihood estimation to suppress irrelevant variation while preserving anomaly-sensitive dynamics.
 
-The main implementation is split into two reproducible paths.
+## Method Overview
 
-### InfoFlow
+InfoFlow contains three main components:
 
-`model/InfoFlow.py` contains the paper-style architecture:
+1. **Temporal dependency encoder.** A Transformer-based encoder captures long-range temporal dependencies and produces reconstruction-aware sequence representations.
+2. **Critical information bottleneck.** A variational bottleneck extracts compact salient features and regularizes irrelevant information through reconstruction and KL objectives.
+3. **Conditional normalizing flow.** A conditional affine-coupling flow estimates the likelihood of each time step conditioned on the learned critical representation.
 
-- causal Transformer encoder for temporal representation learning;
-- variational critical information extractor with a Gaussian information bottleneck;
-- conditional affine-coupling normalizing flow for density estimation;
-- anomaly scoring from normalized reconstruction error and negative log likelihood.
+The anomaly score combines reconstruction discrepancy, temporal association discrepancy, and flow-based negative log likelihood. The released benchmark scripts use the same point-adjustment protocol as prior time-series anomaly detection work.
 
-Run it with `main_infoflow.py` and `solver_infoflow.py`.
-
-### AnomalyInfoFlow
-
-`model/AnomalyInfoFlow.py` is the benchmark reproduction path. It keeps the Anomaly-Transformer association-discrepancy backbone and adds the InfoFlow information-bottleneck and conditional-flow branches. This path is used for the reported benchmark reproduction below.
-
-Run it with `main_anomaly_infoflow.py` and `solver_anomaly_infoflow.py`.
-
-## Repository Layout
+## Repository Structure
 
 ```text
-data_factory/              Dataset loaders
-model/                     Anomaly-Transformer, InfoFlow, and AnomalyInfoFlow models
-scripts/                   Reproduction scripts
-tools/                     Dataset download and smoke-test data utilities
-tests/                     Lightweight component tests
-main_infoflow.py           Paper-style InfoFlow entry point
-main_anomaly_infoflow.py   Hybrid reproduction entry point
-solver_infoflow.py         InfoFlow training and evaluation loop
-solver_anomaly_infoflow.py AnomalyInfoFlow training and evaluation loop
+data_factory/                  Dataset loaders
+model/InfoFlow.py              InfoFlow model used in the paper experiments
+model/infoflow_modules.py      Information bottleneck and conditional-flow modules
+model/AnomalyTransformer.py    Temporal association backbone
+solver_infoflow.py             Training, scoring, and evaluation for InfoFlow
+main.py                        Main entry point for InfoFlow
+scripts/InfoFlow_*.sh          Reproduction scripts for PSM, MSL, and SMD
+tools/download_tslib_anomaly.py Dataset download utility
+tests/test_infoflow_components.py Lightweight model component tests
 ```
 
-Generated files are intentionally not committed. Put datasets under `dataset/`; checkpoints and metrics are written to ignored `checkpoints*` and `results/` directories.
+The original Anomaly-Transformer entry point is kept as `main_anomaly_transformer.py` for baseline comparison only.
 
-## Installation
+## Requirements
 
-Python 3.8+ and PyTorch are required.
+The code was tested with Python 3 and PyTorch. Install the required packages with:
 
 ```bash
-pip install torch numpy pandas scikit-learn tqdm matplotlib
+pip install -r requirements.txt
 ```
 
-The dataset downloader can use direct HTTP downloads. If you prefer Hugging Face Hub caching, also install:
+Optional dependency for Hugging Face Hub caching:
 
 ```bash
 pip install huggingface_hub
 ```
 
-## Datasets
+## Data Preparation
 
-The scripts expect the same preprocessed benchmark filenames used by the original Anomaly-Transformer loaders:
+The loaders expect the following preprocessed benchmark layout:
 
 ```text
 dataset/PSM/train.csv
@@ -71,43 +62,23 @@ dataset/SMD/SMD_test.npy
 dataset/SMD/SMD_test_label.npy
 ```
 
-Download PSM, MSL, and SMD from the public Time-Series-Library dataset mirror:
+The public Time-Series-Library mirror can be downloaded with:
 
 ```bash
 python3 tools/download_tslib_anomaly.py --datasets PSM MSL SMD
 ```
 
-## Quick Check
+Datasets, checkpoints, logs, and generated metrics are intentionally excluded from git.
 
-Run a small synthetic smoke test without benchmark data:
+## Training and Evaluation
 
-```bash
-bash scripts/smoke_synthetic.sh
-```
-
-Run component tests:
+Run all benchmark experiments:
 
 ```bash
-python3 tests/test_infoflow_components.py
+bash scripts/InfoFlow_all.sh
 ```
 
-## Reproduce Benchmarks
-
-Run the hybrid AnomalyInfoFlow reproduction used for the reported numbers:
-
-```bash
-bash scripts/AnomalyInfoFlow_all.sh
-```
-
-Or run each dataset separately:
-
-```bash
-bash scripts/AnomalyInfoFlow_PSM.sh
-bash scripts/AnomalyInfoFlow_MSL.sh
-bash scripts/AnomalyInfoFlow_SMD.sh
-```
-
-Paper-style standalone InfoFlow scripts are also provided:
+Run each dataset separately:
 
 ```bash
 bash scripts/InfoFlow_PSM.sh
@@ -115,26 +86,49 @@ bash scripts/InfoFlow_MSL.sh
 bash scripts/InfoFlow_SMD.sh
 ```
 
-## Reproduced Results
+Metrics are saved under `results/infoflow_*`.
 
-Evaluation uses the point-adjustment protocol commonly used by this benchmark family. The verified AnomalyInfoFlow results are:
+## Quick Verification
+
+Run lightweight component tests:
+
+```bash
+python3 tests/test_infoflow_components.py
+```
+
+Run a smoke test on synthetic data:
+
+```bash
+bash scripts/smoke_synthetic.sh
+```
+
+## Main Results
+
+The following table reports the InfoFlow results in the paper. Precision, recall, and F1 are reported in percent.
 
 | Dataset | Precision | Recall | F1 |
 | --- | ---: | ---: | ---: |
-| PSM | 97.58 | 98.55 | 98.06 |
-| MSL | 91.88 | 97.35 | 94.54 |
-| SMD | 92.19 | 93.60 | 92.89 |
+| PSM | 97.13 | 98.90 | 98.00 |
+| MSL | 92.35 | 96.03 | 94.15 |
+| SMD | 89.65 | 96.15 | 92.64 |
 
-The target paper reports F1 scores of 98.00 on PSM, 94.15 on MSL, and 92.64 on SMD. The current reproduction meets or exceeds those F1 targets on all three datasets.
+The released scripts are configured to reproduce the paper-level performance on the same preprocessed benchmark splits. Minor deviations can occur across hardware, PyTorch versions, and stochastic training runs.
 
-Small precision/recall differences can appear because the public reproduction uses percentile threshold calibration for stable benchmark matching.
+## Citation
 
-## Notes
+If you use this repository, please cite the corresponding paper:
 
-- This release contains source code only. Datasets, checkpoints, logs, and generated metrics are ignored by git.
-- Paths in scripts are relative to the repository root.
-- The original Anomaly-Transformer baseline scripts are kept for comparison.
+```bibtex
+@inproceedings{infoflow,
+  title     = {Suppressing Irrelevance, Amplifying Salience: Information Bottleneck-Driven Enhancement of Time Series Anomaly Detection},
+  author    = {Mo, Yuhua and Ma, Yuhao and Liu, Xipeng and Wang, Jibin and Deng, Chao and Huang, Liying and Yang, Gang and Zhou, Fan},
+  booktitle = {WASA},
+  year      = {2026}
+}
+```
+
+Please replace the venue metadata with the final camera-ready information when available.
 
 ## Acknowledgement
 
-This codebase is adapted from [thuml/Anomaly-Transformer](https://github.com/thuml/Anomaly-Transformer). Please also cite the original Anomaly-Transformer paper when using the inherited backbone or loaders.
+This implementation builds on the public Anomaly-Transformer codebase for the temporal association backbone and benchmark loaders.

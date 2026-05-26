@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-python3 -u main_anomaly_infoflow.py \
+python3 -u main.py \
   --mode train_test \
   --dataset PSM \
   --data_path ./dataset/PSM \
@@ -11,8 +11,8 @@ python3 -u main_anomaly_infoflow.py \
   --step 1 \
   --batch_size 256 \
   --num_epochs 3 \
-  --model_save_path checkpoints_anomaly_infoflow_psm \
-  --result_path results/anomaly_infoflow_psm \
+  --model_save_path checkpoints_infoflow_psm \
+  --result_path results/infoflow_psm \
   --beta 0.6 \
   --gamma 0.4 \
   --alpha 0.5 \
@@ -21,7 +21,7 @@ python3 -u main_anomaly_infoflow.py \
   --threshold_mode percentile \
   --anormly_ratio 0.75
 
-python3 -u main_anomaly_infoflow.py \
+python3 -u main.py \
   --seed 7 \
   --mode train_test \
   --dataset MSL \
@@ -32,8 +32,8 @@ python3 -u main_anomaly_infoflow.py \
   --step 1 \
   --batch_size 256 \
   --num_epochs 3 \
-  --model_save_path checkpoints_anomaly_infoflow_msl \
-  --result_path results/anomaly_infoflow_msl \
+  --model_save_path checkpoints_infoflow_msl \
+  --result_path results/infoflow_msl \
   --beta 0.6 \
   --gamma 0.4 \
   --alpha 0.5 \
@@ -42,7 +42,7 @@ python3 -u main_anomaly_infoflow.py \
   --threshold_mode percentile \
   --anormly_ratio 1.0
 
-python3 -u main_anomaly_infoflow.py \
+python3 -u main.py \
   --mode train_test \
   --dataset SMD \
   --data_path ./dataset/SMD \
@@ -52,8 +52,8 @@ python3 -u main_anomaly_infoflow.py \
   --step 100 \
   --batch_size 256 \
   --num_epochs 10 \
-  --model_save_path checkpoints_anomaly_infoflow_smd \
-  --result_path results/anomaly_infoflow_smd \
+  --model_save_path checkpoints_infoflow_smd \
+  --result_path results/infoflow_smd \
   --weight_decay 0.0 \
   --beta 0.6 \
   --gamma 0.4 \

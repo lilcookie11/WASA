@@ -6,13 +6,13 @@ import torch
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from model.InfoFlow import InfoFlow, infoflow_loss, infoflow_score
-from model.AnomalyInfoFlow import AnomalyInfoFlow
+from model.InfoFlow import InfoFlow
+from model.infoflow_modules import StandaloneInfoFlow, infoflow_loss, infoflow_score
 
 
 def test_infoflow_forward_returns_reconstruction_likelihood_and_ib_terms():
     torch.manual_seed(7)
-    model = InfoFlow(
+    model = StandaloneInfoFlow(
         win_size=16,
         enc_in=4,
         c_out=4,
@@ -39,7 +39,7 @@ def test_infoflow_forward_returns_reconstruction_likelihood_and_ib_terms():
 
 def test_infoflow_loss_backpropagates_through_all_components():
     torch.manual_seed(11)
-    model = InfoFlow(
+    model = StandaloneInfoFlow(
         win_size=8,
         enc_in=3,
         c_out=3,
@@ -73,9 +73,9 @@ def test_infoflow_score_combines_normalized_reconstruction_and_nll():
     assert torch.all(score >= 0)
 
 
-def test_anomaly_infoflow_forward_keeps_association_and_adds_flow_terms():
+def test_infoflow_forward_keeps_association_and_adds_flow_terms():
     torch.manual_seed(17)
-    model = AnomalyInfoFlow(
+    model = InfoFlow(
         win_size=8,
         enc_in=3,
         c_out=3,
@@ -101,4 +101,4 @@ if __name__ == "__main__":
     test_infoflow_forward_returns_reconstruction_likelihood_and_ib_terms()
     test_infoflow_loss_backpropagates_through_all_components()
     test_infoflow_score_combines_normalized_reconstruction_and_nll()
-    test_anomaly_infoflow_forward_keeps_association_and_adds_flow_terms()
+    test_infoflow_forward_keeps_association_and_adds_flow_terms()

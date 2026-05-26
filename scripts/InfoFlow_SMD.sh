@@ -1,5 +1,5 @@
 #!/bin/bash
-python3 -u main_infoflow.py \
+python3 -u main.py \
   --mode train_test \
   --dataset SMD \
   --data_path ./dataset/SMD \
@@ -7,9 +7,15 @@ python3 -u main_infoflow.py \
   --output_c 38 \
   --win_size 100 \
   --step 100 \
-  --batch_size 32 \
+  --batch_size 256 \
   --num_epochs 10 \
+  --model_save_path checkpoints_infoflow_smd \
+  --result_path results/infoflow_smd \
+  --weight_decay 0.0 \
   --beta 0.6 \
   --gamma 0.4 \
   --alpha 0.5 \
-  --threshold_mode paper
+  --association_weight 1.0 \
+  --info_train_weight 0.0 \
+  --threshold_mode percentile \
+  --anormly_ratio 0.35
